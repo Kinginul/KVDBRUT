@@ -5579,8 +5579,10 @@ game:GetService("RunService").RenderStepped:Connect(function()
             end
         else
             if VeilDraw.Highlight and typeof(VeilDraw.Highlight) == "Instance" then
-                VeilDraw.Highlight.Parent = nil
-                VeilDraw.Highlight.Adornee = nil
+                pcall(function()
+                    VeilDraw.Highlight.Parent = nil
+                    VeilDraw.Highlight.Adornee = nil
+                end)
             end
             local laser = getgenv().KYS_SpearLaserPart
             if laser and typeof(laser) == "Instance" then
@@ -7838,20 +7840,21 @@ local function VD_AntiCamp_IsValid()
     if not char then return false end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return false end
-    for _, attr in ipairs({"IsCarried","isCarried","Carried","Grabbed",
-                            "IsHooked","isHooked","Hooked",
-                            "Knocked","IsKnocked","Downed","State"}) do
-        local v = char:GetAttribute(attr)
-        if v == true or v == "Downed" or v == "Dead" then
-            return false
-        end
-    end
     return true
+end
+
+local function VD_AntiCamp_IsKillerRole(plr)
+    if not plr or plr == LocalPlayer then return false end
+    local teamName = plr.Team and plr.Team.Name and plr.Team.Name:lower() or ""
+    if teamName:find("killer") then return true end
+    local char = plr.Character
+    if char and char:GetAttribute("IsKiller") == true then return true end
+    return false
 end
 
 local function VD_AntiCamp_GetKillerRoot()
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and IsKiller(plr) then
+        if VD_AntiCamp_IsKillerRole(plr) then
             local char = plr.Character
             if char then
                 local root = char:FindFirstChild("HumanoidRootPart")
@@ -7903,23 +7906,29 @@ function VD_AntiCamp_Enable()
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root or typeof(root) ~= "Instance" then return end
+
+    -- Save posisi awal
     VD_AntiCampState.SavedCFrame = root.CFrame
     VD_AntiCampState.SavedAnchored = root.Anchored
     VD_AntiCampState.SavedCharacter = char
     VD_AntiCampState.Enabled = true
-    local lastUpdate = 0
+
     VD_AntiCampState.Connection = RunService.RenderStepped:Connect(function()
         if not VD_AntiCampState.Enabled then return end
-        local now = tick()
-        if now - lastUpdate < 0.1 then return end
-        lastUpdate = now
         if not VD_AntiCamp_IsValid() then return end
-        local myChar = LocalPlayer and LocalPlayer.Character
+
+        local myChar = LocalPlayer.Character
         if not myChar then return end
         local myRoot = myChar:FindFirstChild("HumanoidRootPart")
         if not myRoot or typeof(myRoot) ~= "Instance" then return end
+
         local killerRoot = VD_AntiCamp_GetKillerRoot()
-        if not killerRoot or typeof(killerRoot) ~= "Instance" then return end
+        if not killerRoot or typeof(killerRoot) ~= "Instance" then
+            -- Killer mati / keluar -> balik ke posisi awal
+            task.defer(VD_AntiCamp_Disable)
+            return
+        end
+
         local targetPos = killerRoot.Position + Vector3.new(0, VD_AntiCampState.OffsetY, 0)
         pcall(function()
             if not myRoot.Anchored then myRoot.Anchored = true end
