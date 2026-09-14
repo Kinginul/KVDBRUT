@@ -1,3 +1,4 @@
+--!nocheck
 local function __KysHub_Init_Main__()
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -519,15 +520,12 @@ function KYS_Hooks.Return(value)
 end
 
 local function KYS_HooksDispatch(hookType, self, ...)
-    local args = { ... }
     local original = KYS_Hooks._originals[hookType]
 
     for _, handler in ipairs(KYS_Hooks._handlers[hookType]) do
-        local result = handler.Fn(self, unpack(args))
+        local result = handler.Fn(self, ...)
         if result == "BLOCK" then
             return nil
-        elseif result == "PASS" or result == nil then
-            continue
         elseif type(result) == "table" then
             if result.__KYS_HookReturn then
                 return result.Value
@@ -536,7 +534,7 @@ local function KYS_HooksDispatch(hookType, self, ...)
         end
     end
 
-    return original(self, unpack(args))
+    return original(self, ...)
 end
 
 local function KYS_SafeCClosure(fn)
@@ -784,7 +782,6 @@ local VD_DefaultOffFlags = {
     "RADAR_ShowWindow",
     "RADAR_ShowZombie",
     "SURV_WarnKiller",
-    "ANTICAMP_Enabled",
 }
 
 for _, flagName in ipairs(VD_DefaultOffFlags) do
@@ -1254,7 +1251,8 @@ function VD_ApplyWeather(themeName)
         if theme.Particle.Texture then
             task.spawn(function()
                 pcall(function()
-                    game:GetService("ContentProvider"):PreloadAsync({pe})
+                    local CP = game:GetService("ContentProvider") :: any
+                    CP:PreloadAsync({pe})
                 end)
             end)
         end
@@ -3450,20 +3448,19 @@ local function KYS_GetSurvivorSlots()
     if not playerGui then return slots end
 
     for _, gui in ipairs(playerGui:GetChildren()) do
-        if not (gui:IsA("ScreenGui") and gui.Name:match("%-mob$")) then
-            continue
-        end
-        local frame = gui and gui:FindFirstChild("Frame")
-        if frame then
-            for i = 1, 5 do
-                local survivorFrame = frame:FindFirstChild("Survivor" .. i)
-                local imageLabel = survivorFrame and survivorFrame:FindFirstChild("ImageLabel")
-                local textLabel = survivorFrame and survivorFrame:FindFirstChild("TextLabel")
-                if (imageLabel and imageLabel:IsA("ImageLabel")) or (textLabel and textLabel:IsA("TextLabel")) then
-                    table.insert(slots, {
-                        ImageLabel = imageLabel,
-                        TextLabel = textLabel,
-                    })
+        if (gui:IsA("ScreenGui") and gui.Name:match("%-mob$")) then
+            local frame = gui and gui:FindFirstChild("Frame")
+            if frame then
+                for i = 1, 5 do
+                    local survivorFrame = frame:FindFirstChild("Survivor" .. i)
+                    local imageLabel = survivorFrame and survivorFrame:FindFirstChild("ImageLabel")
+                    local textLabel = survivorFrame and survivorFrame:FindFirstChild("TextLabel")
+                    if (imageLabel and imageLabel:IsA("ImageLabel")) or (textLabel and textLabel:IsA("TextLabel")) then
+                        table.insert(slots, {
+                            ImageLabel = imageLabel,
+                            TextLabel = textLabel,
+                        })
+                    end
                 end
             end
         end
@@ -4047,7 +4044,7 @@ local VD_Parry = {
 local VD_ParryAnimation = Instance.new("Animation")
 VD_ParryAnimation.AnimationId = "rbxassetid://109133187196613"
 
-local VD_ParryRange = Instance.new("CylinderHandleAdornment") :: CylinderHandleAdornment
+local VD_ParryRange = Instance.new("CylinderHandleAdornment")
 VD_ParryRange.Name = "KYS_ParryRange"
 VD_ParryRange.Radius = VD.SURV_ParryDistance or 8
 VD_ParryRange.InnerRadius = math.max(0.1, (VD.SURV_ParryDistance or 8) - 0.15)
@@ -4808,12 +4805,12 @@ function GB_GetAllGenerators()
     if not mapFolder then return GenBypass.Cache end
     pcall(function()
         for _, v in pairs(mapFolder:GetDescendants()) do
-            if not v:IsA("Model") then continue end
-            if v.Name ~= "Generator" then continue end
-            local isReal = v:GetAttribute("RepairProgress") ~= nil
-                or v:GetAttribute("kickcount") ~= nil
-                or v:GetAttribute("ProgressRepair") ~= nil
-            if isReal then table.insert(GenBypass.Cache, v) end
+            if v:IsA("Model") and v.Name == "Generator" then
+                local isReal = v:GetAttribute("RepairProgress") ~= nil
+                    or v:GetAttribute("kickcount") ~= nil
+                    or v:GetAttribute("ProgressRepair") ~= nil
+                if isReal then table.insert(GenBypass.Cache, v) end
+            end
         end
     end)
     return GenBypass.Cache
@@ -5015,17 +5012,17 @@ task.spawn(function()
         local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
             for genModel in pairs(GenBypass.Processed) do
-                if not genModel or not genModel.Parent then
-                    GenBypass.Processed[genModel] = nil
-                    continue
-                end
-                local nearAny = false
-                for _, point in pairs(GB_GetPoints(genModel)) do
-                    if point.Parent and (hrp.Position - point.Position).Magnitude <= 10 then
-                        nearAny = true; break
+                if genModel and genModel.Parent then
+                    local nearAny = false
+                    for _, point in pairs(GB_GetPoints(genModel)) do
+                        if point.Parent and (hrp.Position - point.Position).Magnitude <= 10 then
+                            nearAny = true; break
+                        end
                     end
+                    if not nearAny then GenBypass.Processed[genModel] = nil end
+                else
+                    GenBypass.Processed[genModel] = nil
                 end
-                if not nearAny then GenBypass.Processed[genModel] = nil end
             end
         end
     end
@@ -5232,10 +5229,36 @@ VeilState = {
 VeilVelocityCache = {}
 
 VeilDraw = {
-    FOVCircle = Drawing.new("Circle"),
+    FOVCircle = nil,
     Highlight = Instance.new("Highlight"),
-    Tracer    = Drawing.new("Circle"),
+    Tracer    = nil,
 }
+
+if typeof(Drawing) == "table" and Drawing.new then
+    pcall(function() VeilDraw.FOVCircle = Drawing.new("Circle") end)
+    pcall(function() VeilDraw.Tracer = Drawing.new("Circle") end)
+end
+
+if VeilDraw.FOVCircle then
+    VeilDraw.FOVCircle.Color     = Color3.fromRGB(255, 0, 255)
+    VeilDraw.FOVCircle.Thickness = 1.5
+    VeilDraw.FOVCircle.Filled    = false
+    VeilDraw.FOVCircle.Visible   = false
+end
+
+VeilDraw.Highlight.Name                = "VD_VeilTarget"
+VeilDraw.Highlight.FillColor           = Color3.fromRGB(255, 0, 0)
+VeilDraw.Highlight.OutlineColor        = Color3.fromRGB(255, 255, 255)
+VeilDraw.Highlight.FillTransparency    = 0.5
+VeilDraw.Highlight.OutlineTransparency = 0
+
+if VeilDraw.Tracer then
+    VeilDraw.Tracer.Thickness = 2
+    VeilDraw.Tracer.Radius    = 5
+    VeilDraw.Tracer.Color     = Color3.fromRGB(255, 0, 255)
+    VeilDraw.Tracer.Filled    = true
+    VeilDraw.Tracer.Visible   = false
+end
 
 VeilDraw.FOVCircle.Color     = Color3.fromRGB(255, 0, 255)
 VeilDraw.FOVCircle.Thickness = 1.5
@@ -5523,9 +5546,9 @@ game:GetService("RunService").RenderStepped:Connect(function()
     local myChar      = LocalPlayer.Character
     local isSpearMode = myChar and myChar:GetAttribute("spearmode") == true
 
-    if not VeilDraw or not VeilDraw.FOVCircle or not VeilDraw.Highlight or not VeilDraw.Tracer then return end
-    if VeilConfig.Enabled and VeilConfig.ShowFOV and isSpearMode then
-        VeilDraw.FOVCircle.Visible  = true
+    if not VeilDraw or not VeilDraw.Highlight then return end
+    if VeilConfig.Enabled and VeilConfig.ShowFOV and isSpearMode and VeilDraw.FOVCircle then
+    VeilDraw.FOVCircle.Visible  = true
         VeilDraw.FOVCircle.Radius   = VeilConfig.FOV
         VeilDraw.FOVCircle.Position = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
     else
@@ -6028,15 +6051,9 @@ do -- Player Tab
     movSection:AddToggle({
         Default = false,
         Name = "Auto Crouch BETA",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "Auto Crouch BETA",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur Auto Crouch BETA hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            setAutoCrouch(v)
+                        setAutoCrouch(v)
         end
     })
 
@@ -6084,15 +6101,8 @@ do -- Player Tab
         VD.Noclip = v 
         if not v and getgenv().VD_DisableNoclip then pcall(getgenv().VD_DisableNoclip) end
     end })
-    movSection:AddToggle({ Default = false, Name = "Moonwalk", Flag = "Moonwalk", Callback = function(v)
-        if getgenv().VD_SetMoonwalkButtonVisible then
-            getgenv().VD_SetMoonwalkButtonVisible(v)
-        else
-            VD.MoonwalkButton = v
-        end
-    end })
-    movSection:AddToggle({ Default = false, Name = "Lock Moonwalk Button", Flag = "Lock Moonwalk Button", Callback = function(v)
-        VD.MoonwalkButtonLocked = v and true or false
+    movSection:AddToggle({ Default = false, Name = "Moonwalk (auto on S)", Flag = "Moonwalk", Callback = function(v)
+        VD.Moonwalk = v and true or false
     end })
     movSection:AddSlider({
         Name = "Moonwalk Zigzag Speed", Flag = "Moonwalk Zigzag Speed",
@@ -6108,12 +6118,8 @@ do -- Player Tab
             VD.MoonwalkBoostPower = v
         end
     })
-    movSection:AddToggle({ Default = false, Name = "Invisible Not Visual", Locked = false, TextLocked = "Premium Required", Flag = "Invisible Not Visual", Callback = function(v) 
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Invisible Not Visual hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.InvisibleNotVisual = v; if not v and VD_InvisibleNV.Active then pcall(VD_SetInvisibleNotVisual, false) end 
+    movSection:AddToggle({ Default = false, Name = "Invisible Not Visual", Flag = "Invisible Not Visual", Callback = function(v) 
+                VD.InvisibleNotVisual = v; if not v and VD_InvisibleNV.Active then pcall(VD_SetInvisibleNotVisual, false) end 
     end })
     movSection:AddSlider({
         Name = "Invisible Speed", Flag = "Invisible Speed",
@@ -6231,12 +6237,8 @@ do -- Aim Tab
 
     spearSection:AddDivider({ Text = "Silent Aim (Veil)" })
 
-    spearSection:AddToggle({ Default = false, Name = "Silent Aim Spear (Veil)", Locked = false, TextLocked = "Premium Required", Flag = "Silent Aim Spear (Veil)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Silent Aim Spear hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VeilConfig.Enabled = v
+    spearSection:AddToggle({ Default = false, Name = "Silent Aim Spear (Veil)", Flag = "Silent Aim Spear (Veil)", Callback = function(v)
+                VeilConfig.Enabled = v
     end })
     spearSection:AddToggle({ Default = true, Name = "Show FOV Circle", Flag = "Show FOV Circle", Callback = function(v) VeilConfig.ShowFOV = v end })
     spearSection:AddToggle({ Default = true, Name = "Show Target Laser", Flag = "Show Target Laser", Callback = function(v) VeilConfig.ShowTargetLaser = v end })
@@ -6259,18 +6261,12 @@ do -- Aim Tab
         Opened    = false,
     })
 
-    flaskSection:AddToggle({ Default = false, Name = "Silent Aim Flask (Cure)", Locked = false, TextLocked = "Premium Required", Flag = "Silent Aim Flask (Cure)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Silent Aim Flask (Cure) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    flaskSection:AddToggle({ Default = false, Name = "Silent Aim Flask (Cure)", Flag = "Silent Aim Flask (Cure)", Callback = function(v)
+
         VD.KILLER_SilentAimFlask = v
     end })
-    flaskSection:AddToggle({ Default = false, Name = "Flask Laser (Cure)", Locked = false, TextLocked = "Premium Required", Flag = "Flask Laser (Cure)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Flask Laser (Cure) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    flaskSection:AddToggle({ Default = false, Name = "Flask Laser (Cure)", Flag = "Flask Laser (Cure)", Callback = function(v)
+
         VD.KILLER_FlaskLaser = v
         if v then
             pcall(KYS_StartCureFlaskLaser)
@@ -6298,15 +6294,9 @@ do -- Aim Tab
     tofSection:AddToggle({
         Default = false,
         Name = "Silent Aim Twist Of Fate",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "Silent Aim Twist Of Fate",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur Silent Aim Twist Of Fate hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            if getgenv().KYS_SetToFSilentAim then
+                        if getgenv().KYS_SetToFSilentAim then
                 getgenv().KYS_SetToFSilentAim(v)
             end
         end
@@ -6314,15 +6304,9 @@ do -- Aim Tab
     tofSection:AddToggle({
         Default = true,
         Name = "ToF Laser",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "ToF Laser",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur ToF Laser hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            VD.TOF_Laser = v
+                        VD.TOF_Laser = v
             if not v and getgenv().KYS_ToFClearLaser then
                 getgenv().KYS_ToFClearLaser()
             end
@@ -6331,29 +6315,17 @@ do -- Aim Tab
     tofSection:AddToggle({
         Default = false,
         Name = "ToF Wall Check",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "ToF Wall Check",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur ToF Wall Check hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            VD.TOF_WallCheck = v
+                        VD.TOF_WallCheck = v
         end
     })
     tofSection:AddToggle({
         Default = true,
         Name = "ToF Block When Knocked",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "ToF Block When Knocked",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur ToF Block When Knocked hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            VD.TOF_BlockKnocked = v
+                        VD.TOF_BlockKnocked = v
         end
     })
     tofSection:AddDropdown({
@@ -6395,15 +6367,9 @@ do -- Aim Tab
     flashlightSection:AddToggle({
         Default = false,
         Name = "Silent Aim Flashlight",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "Silent Aim Flashlight",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur Silent Aim Flashlight hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            if getgenv().KYS_SetFlashlightSilentAim then
+                        if getgenv().KYS_SetFlashlightSilentAim then
                 getgenv().KYS_SetFlashlightSilentAim(v)
             else
                 VD.FLASH_SilentAim = v
@@ -6413,15 +6379,9 @@ do -- Aim Tab
     flashlightSection:AddToggle({
         Default = true,
         Name = "Flashlight Laser",
-        Locked = false,
-        TextLocked = "Premium Required",
         Flag = "Flashlight Laser",
         Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur Flashlight Laser hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            VD.FLASH_Laser = v
+                        VD.FLASH_Laser = v
             if not v and getgenv().KYS_ClearFlashlightLaser then
                 getgenv().KYS_ClearFlashlightLaser()
             end
@@ -6598,12 +6558,8 @@ do -- Survivor Tab
     })
 
     combatSurv:AddToggle({ Default = false, Name = "Swift Vault", Flag = "SwiftVault", Callback = function(v) VD.SURV_AutoVault = v end })
-    combatSurv:AddToggle({ Default = false, Name = "Swift Vault V2", Locked = false, TextLocked = "Premium Required", Flag = "SURV_SwiftVaultV2", Callback = function(v) 
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Swift Vault V2 hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.SURV_FastVault = v 
+    combatSurv:AddToggle({ Default = false, Name = "Swift Vault V2", Flag = "SURV_SwiftVaultV2", Callback = function(v) 
+                VD.SURV_FastVault = v 
         if not v then
             local char = LocalPlayer.Character
             if char then char:SetAttribute("vaultspeed", 1) end
@@ -6620,28 +6576,16 @@ do -- Survivor Tab
         Min = 5, Max = 50, Default = 20, Increment = 0.1,
         Callback = function(v) VD.SURV_AutoPalletDist = v end
     })
-    combatSurv:AddToggle({ Default = false, Name = "Anti Knock", Locked = false, TextLocked = "Premium Required", Flag = "Anti Knock", Callback = function(v) 
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Anti Knock hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.SURV_AntiKnock = v 
+    combatSurv:AddToggle({ Default = false, Name = "Anti Knock", Flag = "Anti Knock", Callback = function(v) 
+                VD.SURV_AntiKnock = v 
     end })
     combatSurv:AddToggle({ Default = false, Name = "Infinite Flashlight Battery", Flag = "Infinite Flashlight", Callback = function(v) setGodFlashlight(v) end })
     combatSurv:AddToggle({ Default = false, Name = "Aura Heal (Self)", Flag = "Instant Heal (Self)", Callback = function(v) setInstantHealSelf(v) end })
-    combatSurv:AddToggle({ Default = false, Name = "Auto Dodge Spear (Veil)", Locked = false, TextLocked = "Premium Required", Flag = "Auto Dodge Spear", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Auto Dodge Spear hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.SURV_AutoDodgeSpear = v
+    combatSurv:AddToggle({ Default = false, Name = "Auto Dodge Spear (Veil)", Flag = "Auto Dodge Spear", Callback = function(v)
+                VD.SURV_AutoDodgeSpear = v
     end })
-    combatSurv:AddToggle({ Default = false, Name = "Aura Heal All", Locked = false, TextLocked = "Premium Required", Flag = "Auto Heal All", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Aura Heal All hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        setAutoHealAll(v)
+    combatSurv:AddToggle({ Default = false, Name = "Aura Heal All", Flag = "Auto Heal All", Callback = function(v)
+                setAutoHealAll(v)
     end })
 
     combatSurv:AddToggle({
@@ -6651,12 +6595,8 @@ do -- Survivor Tab
             pcall(RestoreFirstPersonCamera)
         end
     end })
-    combatSurv:AddToggle({ Default = false, Name = "Auto Parry", Locked = false, TextLocked = "Premium Required", Flag = "Auto Parry", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Auto Parry hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD_SetAutoParry(v)
+    combatSurv:AddToggle({ Default = false, Name = "Auto Parry", Flag = "Auto Parry", Callback = function(v)
+                VD_SetAutoParry(v)
     end })
     combatSurv:AddToggle({ Default = false, Name = "Auto Parry Agresif", Flag = "Auto Parry Agresif", Callback = function(v) VD.SURV_ParryAggressive = v end })
     
@@ -6689,12 +6629,8 @@ do -- Survivor Tab
         end
     })
     
-    combatSurv:AddToggle({ Default = false, Name = "Undraggable Button (Fake Parry)", Locked = false, TextLocked = "Premium Required", Flag = "Undraggable Button (Fake Parry)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Undraggable Button hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        FakeParryData.DragLocked = v
+    combatSurv:AddToggle({ Default = false, Name = "Undraggable Button (Fake Parry)", Flag = "Undraggable Button (Fake Parry)", Callback = function(v)
+                FakeParryData.DragLocked = v
     end })
     
     combatSurv:AddToggle({ Default = false, Name = "Fake Generator (Press B)", Flag = "Fake Generator (Press B)", Callback = function(v) 
@@ -6702,38 +6638,9 @@ do -- Survivor Tab
         if FakeGenData and FakeGenData.Button then FakeGenData.Button.Visible = v end
     end })
 
-    combatSurv:AddToggle({ Default = false, Name = "Undraggable Button (Fake Gen)", Locked = false, TextLocked = "Premium Required", Flag = "Undraggable Button (Fake Gen)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Undraggable Button hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        if FakeGenData then FakeGenData.DragLocked = v end
+    combatSurv:AddToggle({ Default = false, Name = "Undraggable Button (Fake Gen)", Flag = "Undraggable Button (Fake Gen)", Callback = function(v)
+                if FakeGenData then FakeGenData.DragLocked = v end
     end })
-
-    combatSurv:AddToggle({
-        Default = false,
-        Name = "Anti Camp Bypass",
-        Locked = false,
-        TextLocked = "Premium Required",
-        Flag = "Anti Camp Bypass",
-        Callback = function(v)
-            if v and false then
-                pcall(VD_Notify, "Premium Required ✨", "Fitur Anti Camp Bypass hanya untuk pengguna Key Premium!", 5)
-                return
-            end
-            VD_AntiCamp_SetEnabled(v)
-        end
-    })
-combatSurv:AddSlider({
-    Name = "Anti Camp Offset Y",
-    Flag = "Anti Camp Offset Y",
-    Min = -30, Max = -3, Default = -8, Increment = 1,
-    Callback = function(v)
-        if getgenv().VD_AntiCamp_State then
-            getgenv().VD_AntiCamp_State.OffsetY = v
-        end
-    end
-})
 
 local FakeParryAnimations = {
     ["Enten"]       = "rbxassetid://127096285501517",
@@ -7053,11 +6960,8 @@ do -- Killer Tab
     })
 
 
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Abyssal Burst (Abyss)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Abyssal Burst (Abyss)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Abyssal Burst (Abyss) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Abyssal Burst (Abyss)", Flag = "Infinite Abyssal Burst (Abyss)", Callback = function(v)
+
         VD.KILLER_BypassCooldown = v
         if v then
             KYS_StartAbyssCooldownBypass()
@@ -7065,11 +6969,8 @@ do -- Killer Tab
             KYS_StopAbyssCooldownBypass()
         end
     end })
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Skill (Hidden)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Skill (Hidden)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Skill (Hidden) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Skill (Hidden)", Flag = "Infinite Skill (Hidden)", Callback = function(v)
+
         VD.KILLER_BypassLeap = v
         if v then
             pcall(KYS_StartHiddenCooldownBypass)
@@ -7077,11 +6978,8 @@ do -- Killer Tab
             pcall(KYS_StopHiddenCooldownBypass)
         end
     end })
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Frenzy (Jeff)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Frenzy (Jeff)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Frenzy (Jeff) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Frenzy (Jeff)", Flag = "Infinite Frenzy (Jeff)", Callback = function(v)
+
         VD.KILLER_InfFrenzy = v
         if v then
             pcall(KYS_StartJeffCooldownBypass)
@@ -7090,11 +6988,8 @@ do -- Killer Tab
         end
     end })
 
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Lake Mist (Jason)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Lake Mist (Jason)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Lake Mist (Jason) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Lake Mist (Jason)", Flag = "Infinite Lake Mist (Jason)", Callback = function(v)
+
         VD.KILLER_InfLakeMist = v
         if v then
             pcall(KYS_StartSlasherCooldownBypass)
@@ -7103,11 +6998,8 @@ do -- Killer Tab
         end
     end })
 
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Pursuit (Jason)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Pursuit (Jason)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Pursuit (Jason) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Pursuit (Jason)", Flag = "Infinite Pursuit (Jason)", Callback = function(v)
+
         VD.KILLER_InfPursuit = v
         if v then
             pcall(KYS_StartSlasherCooldownBypass)
@@ -7118,44 +7010,28 @@ do -- Killer Tab
 
 
 
-    abilityKiller:AddToggle({ Default = false, Name = "Infinite Grab (Myers)", Locked = false, TextLocked = "Premium Required", Flag = "Infinite Grab (Myers)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Infinite Grab (Myers) hanya untuk pengguna Key Premium!", 5)
-            return
-        end
+    abilityKiller:AddToggle({ Default = false, Name = "Infinite Grab (Myers)", Flag = "Infinite Grab (Myers)", Callback = function(v)
+
         setMyersGrab(v)
     end })
     
-    abilityKiller:AddToggle({ Default = false, Name = "Fake Attack (Counter Parry)", Locked = false, TextLocked = "Premium Required", Flag = "Fake Attack (Counter Parry)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Fake Attack hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.KILLER_FakeAttack = v
+    abilityKiller:AddToggle({ Default = false, Name = "Fake Attack (Counter Parry)", Flag = "Fake Attack (Counter Parry)", Callback = function(v)
+                VD.KILLER_FakeAttack = v
         pcall(KYS_ToggleFakeAttack, v)
     end })
 
-    abilityKiller:AddToggle({ Default = false, Name = "Undraggable Button (Inf Grab)", Locked = false, TextLocked = "Premium Required", Flag = "Undraggable Button (Inf Grab)", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Undraggable Button hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        setMyersDragLocked(v)
+    abilityKiller:AddToggle({ Default = false, Name = "Undraggable Button (Inf Grab)", Flag = "Undraggable Button (Inf Grab)", Callback = function(v)
+                setMyersDragLocked(v)
     end })
     pcall(function()
         local customMaskedMasks = {"Richard", "Tony", "Brandon", "Jake", "Richter", "Graham", "Alex"}
         abilityKiller:AddDropdown({
             Name = "Custom Masked",
-            Locked = false,
-            TextLocked = "Premium Required",
             Flag = "Custom Masked",
             Values = customMaskedMasks,
             Multi = false,
             Default = VD.KILLER_CustomMasked or "Richard",
             Callback = function(v)
-                if v and false then
-                    return
-                end
                 if type(v) == "table" then
                     v = v[1]
                 end
@@ -7164,26 +7040,14 @@ do -- Killer Tab
         })
         abilityKiller:AddButton({
             Name = "Apply Custom Masked",
-            Locked = false,
-            TextLocked = "Premium Required",
             Callback = function()
-                if false then
-                    pcall(VD_Notify, "Premium Required ✨", "Fitur Custom Masked hanya untuk pengguna Key Premium!", 5)
-                    return
-                end
-                pcall(KYS_ApplyCustomMasked, VD.KILLER_CustomMasked)
+                                pcall(KYS_ApplyCustomMasked, VD.KILLER_CustomMasked)
             end
         })
         abilityKiller:AddButton({
             Name = "Random Custom Masked",
-            Locked = false,
-            TextLocked = "Premium Required",
             Callback = function()
-                if false then
-                    pcall(VD_Notify, "Premium Required ✨", "Fitur Custom Masked hanya untuk pengguna Key Premium!", 5)
-                    return
-                end
-                local mask = customMaskedMasks[math.random(1, #customMaskedMasks)]
+                                local mask = customMaskedMasks[math.random(1, #customMaskedMasks)]
                 VD.KILLER_CustomMasked = mask
                 pcall(KYS_ApplyCustomMasked, mask)
             end
@@ -7202,26 +7066,14 @@ do -- Killer Tab
     utilKiller:AddToggle({ Default = false, Name = "Auto Hook", Flag = "Auto Hook", Callback = function(v) VD.KILLER_AutoHook = v end })
     utilKiller:AddToggle({ Default = false, Name = "Destroy Pallets", Flag = "Destroy Pallets", Callback = function(v) VD.KILLER_DestroyPallets = v end })
     utilKiller:AddToggle({ Default = false, Name = "Auto Kick Generator", Flag = "Auto Kick Generator", Callback = function(v) VD.KILLER_AutoBreakGene = v end })
-    utilKiller:AddToggle({ Default = false, Name = "Block All Vaults", Locked = false, TextLocked = "Premium Required", Flag = "Block All Vaults", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Block All Vaults hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.KILLER_BlockVaults = v
+    utilKiller:AddToggle({ Default = false, Name = "Block All Vaults", Flag = "Block All Vaults", Callback = function(v)
+                VD.KILLER_BlockVaults = v
     end })
-    utilKiller:AddToggle({ Default = false, Name = "Auto Drop All Pallets", Locked = false, TextLocked = "Premium Required", Flag = "Auto Drop All Pallets", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Auto Drop All Pallets hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.KILLER_BlockPallets = v
+    utilKiller:AddToggle({ Default = false, Name = "Auto Drop All Pallets", Flag = "Auto Drop All Pallets", Callback = function(v)
+                VD.KILLER_BlockPallets = v
     end })
-    utilKiller:AddToggle({ Default = false, Name = "Break All Pallet", Locked = false, TextLocked = "Premium Required", Flag = "Break All Pallet", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Break All Pallet hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.KILLER_BlockPalletDrop = v
+    utilKiller:AddToggle({ Default = false, Name = "Break All Pallet", Flag = "Break All Pallet", Callback = function(v)
+                VD.KILLER_BlockPalletDrop = v
     end })
 
     utilKiller:AddToggle({
@@ -7273,12 +7125,8 @@ do -- Escape Tab
     })
 
     escapeSurv:AddToggle({ Default = false, Name = "Bypass Gate", Flag = "Bypass Gate", Callback = function(v) VD.BypassGate = v; if not v then pcall(VD_RestoreGateParts) end end })
-    escapeSurv:AddToggle({ Default = false, Name = "Beat Survivor (auto exit)", Locked = false, TextLocked = "Premium Required", Flag = "Beat Survivor (auto exit)", Callback = function(v) 
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Beat Survivor hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.BEAT_Survivor = v 
+    escapeSurv:AddToggle({ Default = false, Name = "Beat Survivor (auto exit)", Flag = "Beat Survivor (auto exit)", Callback = function(v) 
+                VD.BEAT_Survivor = v 
     end })
 
     escapeSurv:AddToggle({ Default = false, Name = "Flee Killer", Flag = "Flee Killer", Callback = function(v) VD.SURV_FleeKiller = v end })
@@ -7313,10 +7161,7 @@ do -- Generator Tab
         Multi = false,
         Callback = function(option)
             if type(option) == "table" then option = option[1] end
-            if option == "Instant" and false then
-                pcall(VD_Notify, "Premium Required ✨", "Opsi Instant hanya untuk pengguna Key Premium!", 5)
-                return
-            end
+
             
             VD.AutoSkillcheckMode = option or "Normal"
             if VD.AutoSkillcheckMode ~= "Instant" and AutoSkill.InstantRotationConnection then
@@ -7328,12 +7173,8 @@ do -- Generator Tab
         end
     })
     genAuto:AddToggle({ Default = false, Name = "Hide Skillcheck UI", Flag = "Hide Skillcheck UI", Callback = function(v) VD.HideSkillUI = v end })
-    genAuto:AddToggle({ Default = false, Name = "Boost Gen Bypass", Locked = false, TextLocked = "Premium Required", Flag = "Boost Gen Bypass", Callback = function(v)
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Boost Gen Bypass hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        setGenBypass(v)
+    genAuto:AddToggle({ Default = false, Name = "Boost Gen Bypass", Flag = "Boost Gen Bypass", Callback = function(v)
+                setGenBypass(v)
     end })
             -- TP ke generator belum selesai
     genAuto:AddDivider({ Text = "Teleport Generator" })
@@ -7372,12 +7213,8 @@ do -- Fling Tab
         Opened    = false,
     })
 
-    flingSection:AddToggle({ Default = false, Name = "Enable Fling", Locked = false, TextLocked = "Premium Required", Flag = "Enable Fling", Callback = function(v) 
-        if v and false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Fling hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        VD.FLING_Enabled = v 
+    flingSection:AddToggle({ Default = false, Name = "Enable Fling", Flag = "Enable Fling", Callback = function(v) 
+                VD.FLING_Enabled = v 
     end })
     flingSection:AddSlider({
         Name = "Fling Strength", Flag = "Fling Strength",
@@ -7390,19 +7227,11 @@ do -- Fling Tab
 
     -- removed FlingTab AddDivider
 
-    flingSection:AddButton({ Name = "Fling Nearest", Locked = false, TextLocked = "Premium Required", Callback = function() 
-        if false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Fling hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        pcall(function() KYS_FlingNearest() end) 
+    flingSection:AddButton({ Name = "Fling Nearest", Callback = function() 
+                pcall(function() KYS_FlingNearest() end) 
     end })
-    flingSection:AddButton({ Name = "Fling All", Locked = false, TextLocked = "Premium Required", Callback = function() 
-        if false then
-            pcall(VD_Notify, "Premium Required ✨", "Fitur Fling hanya untuk pengguna Key Premium!", 5)
-            return
-        end
-        pcall(KYS_FlingAll) 
+    flingSection:AddButton({ Name = "Fling All", Callback = function() 
+                pcall(KYS_FlingAll) 
     end })
 end
 
@@ -7619,6 +7448,36 @@ do -- Fun Tab
     })
 end
 
+do -- Ngonten Mode Tab
+    local ngontenSection = PlayerMiscFeatureTabs.Fun:AddSection({
+        Position = "Center",
+        Name = "Ngonten Mode",
+        Icon      = "solar:videocamera-bold",
+        Box       = true,
+        BoxBorder = true,
+        Opened    = false,
+    })
+
+    ngontenSection:AddToggle({
+        Default = false,
+        Name = "Ngonten Mode (Sky + Fog + Text + Rainbow)",
+        Flag = "Ngonten Mode",
+        Callback = function(v)
+            pcall(VD_Ngonten_SetEnabled, v)
+        end
+    })
+
+    ngontenSection:AddSlider({
+        Name = "Rainbow Speed",
+        Flag = "Ngonten Rainbow Speed",
+        Min = 0.05, Max = 1.5, Default = 0.35, Increment = 0.05,
+        Callback = function(v)
+            if getgenv().VD_Ngonten_State then
+                getgenv().VD_Ngonten_State.RainbowSpeed = v
+            end
+        end
+    })
+end
 do -- Streamer Mode Tab
     local streamerSection = PlayerMiscFeatureTabs.Streamer:AddSection({
         Position = "Center",
@@ -7822,143 +7681,6 @@ end
 function VD_IsStatusActive(value)
     return value == true or (type(value) == "number" and value > 0)
 end
-
--- =====================================================
--- ANTI CAMP BYPASS v2 (fixed)
--- =====================================================
-local VD_AntiCampState = {
-    Enabled = false,
-    SavedCFrame = nil,
-    SavedAnchored = false,
-    SavedCharacter = nil,
-    OffsetY = -8,
-    Connection = nil,
-}
-
-local function VD_AntiCamp_IsValid()
-    local char = LocalPlayer.Character
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-    return true
-end
-
-local function VD_AntiCamp_IsKillerRole(plr)
-    if not plr or plr == LocalPlayer then return false end
-    local teamName = plr.Team and plr.Team.Name and plr.Team.Name:lower() or ""
-    if teamName:find("killer") then return true end
-    local char = plr.Character
-    if char and char:GetAttribute("IsKiller") == true then return true end
-    return false
-end
-
-local function VD_AntiCamp_GetKillerRoot()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if VD_AntiCamp_IsKillerRole(plr) then
-            local char = plr.Character
-            if char then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if root and hum and hum.Health > 0 then
-                    return root
-                end
-            end
-        end
-    end
-    return nil
-end
-
-function VD_AntiCamp_Disable()
-    VD_AntiCampState.Enabled = false
-    if VD_AntiCampState.Connection then
-        pcall(function() VD_AntiCampState.Connection:Disconnect() end)
-        VD_AntiCampState.Connection = nil
-    end
-
-    local char = LocalPlayer and LocalPlayer.Character
-    if char and char == VD_AntiCampState.SavedCharacter then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root and VD_AntiCampState.SavedCFrame and typeof(root) == "Instance" then
-            pcall(function()
-                root.Anchored = false
-                task.defer(function()
-                    pcall(function()
-                        if typeof(root) == "Instance" then
-                            root.CFrame = VD_AntiCampState.SavedCFrame
-                            root.Anchored = VD_AntiCampState.SavedAnchored or false
-                        end
-                    end)
-                end)
-            end)
-        end
-    end
-    VD_AntiCampState.SavedCFrame = nil
-    VD_AntiCampState.SavedAnchored = false
-    VD_AntiCampState.SavedCharacter = nil
-end
-
-function VD_AntiCamp_Enable()
-    if VD_AntiCampState.Connection then
-        pcall(function() VD_AntiCampState.Connection:Disconnect() end)
-        VD_AntiCampState.Connection = nil
-    end
-    local char = LocalPlayer and LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root or typeof(root) ~= "Instance" then return end
-
-    -- Save posisi awal
-    VD_AntiCampState.SavedCFrame = root.CFrame
-    VD_AntiCampState.SavedAnchored = root.Anchored
-    VD_AntiCampState.SavedCharacter = char
-    VD_AntiCampState.Enabled = true
-
-    VD_AntiCampState.Connection = RunService.RenderStepped:Connect(function()
-        if not VD_AntiCampState.Enabled then return end
-        if not VD_AntiCamp_IsValid() then return end
-
-        local myChar = LocalPlayer.Character
-        if not myChar then return end
-        local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-        if not myRoot or typeof(myRoot) ~= "Instance" then return end
-
-        local killerRoot = VD_AntiCamp_GetKillerRoot()
-        if not killerRoot or typeof(killerRoot) ~= "Instance" then
-            -- Killer mati / keluar -> balik ke posisi awal
-            task.defer(VD_AntiCamp_Disable)
-            return
-        end
-
-        local targetPos = killerRoot.Position + Vector3.new(0, VD_AntiCampState.OffsetY, 0)
-        pcall(function()
-            if not myRoot.Anchored then myRoot.Anchored = true end
-            myRoot.CFrame = CFrame.new(targetPos)
-        end)
-    end)
-end
-
-function VD_AntiCamp_SetEnabled(state)
-    if state then
-        VD_AntiCamp_Enable()
-    else
-        VD_AntiCamp_Disable()
-    end
-end
-
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    if VD_AntiCampState.Enabled then
-        VD_AntiCamp_Disable()
-        warn("[AntiCamp] Character respawned — auto disabled")
-        -- Sync UI toggle balik ke OFF
-        if Window and Window.ConfigElements then
-            local elem = Window.ConfigElements["Anti Camp Bypass"]
-            if elem and elem.Set then pcall(function() elem:Set(false) end) end
-        end
-    end
-end)
-
-getgenv().VD_AntiCamp_SetEnabled = VD_AntiCamp_SetEnabled
-getgenv().VD_AntiCamp_State = VD_AntiCampState
 
 function VD_RunAntiKnock()
     if not VD.SURV_AntiKnock or GetRole() ~= "Survivor" then return end
@@ -8311,179 +8033,10 @@ local VD_MoonwalkState = {
     ButtonLabel = nil,
     SyncingUI = false,
 }
-
-function VD_RefreshMoonwalkButton()
-    local btn = VD_MoonwalkState.Button
-    if not (btn and btn.Parent) then return end
-    btn.BackgroundColor3 = VD.Moonwalk and Color3.fromRGB(35, 185, 95) or Color3.fromRGB(20, 0, 30)
-    local label = VD_MoonwalkState.ButtonLabel
-    if label and label.Parent then
-        label.Text = VD.Moonwalk and "ON" or "OFF"
-        label.TextColor3 = VD.Moonwalk and Color3.fromRGB(190, 255, 210) or Color3.fromRGB(255, 255, 255)
-    end
-end
-
-function VD_SetMoonwalk(state)
-    VD.Moonwalk = state and true or false
-    VD_RefreshMoonwalkButton()
-end
-getgenv().VD_SetMoonwalk = VD_SetMoonwalk
-
-function VD_DestroyMoonwalkButton()
-    if VD_MoonwalkState.ButtonGui then
-        pcall(function() VD_MoonwalkState.ButtonGui:Destroy() end)
-    end
-    VD_MoonwalkState.ButtonGui = nil
-    VD_MoonwalkState.Button = nil
-    VD_MoonwalkState.ButtonLabel = nil
-end
-
-function VD_CreateMoonwalkButton()
-    local parent = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
-    if not parent then
-        task.delay(1, VD_CreateMoonwalkButton)
-        return
-    end
-    if VD_MoonwalkState.ButtonGui and VD_MoonwalkState.ButtonGui.Parent then
-        VD_RefreshMoonwalkButton()
-        return
-    end
-
-    local old = parent:FindFirstChild("KYS_MoonwalkButton")
-    if old then pcall(function() old:Destroy() end) end
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "KYS_MoonwalkButton"
-    sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.DisplayOrder = 999999
-    sg.Parent = parent
-
-    local btn = Instance.new("ImageButton")
-    btn.Name = "MoonwalkButton"
-    btn.Size = UDim2.new(0, 60, 0, 60)
-    btn.Position = UDim2.new(0.88, 0, 0.43, 0)
-    btn.AnchorPoint = Vector2.new(0.5, 0.5)
-    btn.BackgroundColor3 = Color3.fromRGB(20, 0, 30)
-    btn.BackgroundTransparency = 0.15
-    btn.BorderSizePixel = 0
-    btn.AutoButtonColor = true
-    btn.Visible = true
-    btn.ZIndex = 10
-    btn.Parent = sg
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
-
-    local stroke = Instance.new("UIStroke", btn)
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 2
-    stroke.Transparency = 0.2
-
-    local lbl = Instance.new("TextLabel", btn)
-    lbl.Name = "StateLabel"
-    lbl.Size = UDim2.new(1, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = "OFF"
-    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    lbl.TextScaled = true
-    lbl.Font = Enum.Font.GothamBlack
-    lbl.ZIndex = 11
-
-    local function applyShine(obj, baseColor)
-        local grad = Instance.new("UIGradient", obj)
-        grad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, baseColor),
-            ColorSequenceKeypoint.new(0.4, baseColor),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.6, baseColor),
-            ColorSequenceKeypoint.new(1, baseColor)
-        })
-        grad.Rotation = 45
-        grad.Offset = Vector2.new(-1, -1)
-
-        task.spawn(function()
-            local TweenService = game:GetService("TweenService")
-            local ti = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1)
-            local tw = TweenService:Create(grad, ti, { Offset = Vector2.new(1, 1) })
-            tw:Play()
-        end)
-    end
-
-    pcall(applyShine, btn, Color3.fromRGB(20, 0, 30))
-    pcall(applyShine, lbl, Color3.fromRGB(255, 0, 255))
-    pcall(applyShine, stroke, Color3.fromRGB(255, 0, 255))
-
-    local dragging = false
-    local dragStart, startPos
-    local moved = false
-    btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            moved = false
-            if VD.MoonwalkButtonLocked then return end
-            dragging = true
-            dragStart = input.Position
-            startPos = btn.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if VD.MoonwalkButtonLocked then return end
-        if not dragging or not dragStart or not startPos then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local delta = input.Position - dragStart
-        if math.abs(delta.X) > 4 or math.abs(delta.Y) > 4 then moved = true end
-        btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end)
-
-    btn.MouseButton1Click:Connect(function()
-        if moved and not VD.MoonwalkButtonLocked then return end
-        moved = false
-        VD_SetMoonwalk(not VD.Moonwalk)
-    end)
-
-    VD_MoonwalkState.ButtonGui = sg
-    VD_MoonwalkState.Button = btn
-    VD_MoonwalkState.ButtonLabel = lbl
-    VD_RefreshMoonwalkButton()
-end
-
 function VD_SetMoonwalkButtonVisible(state)
     VD.MoonwalkButton = state and true or false
-    local flagName = VD_To_Flag and VD_To_Flag.MoonwalkButton
-    local elem = flagName and Window and Window.ConfigElements and Window.ConfigElements[flagName]
-    if elem and elem.Set and not VD_MoonwalkState.SyncingUI then
-        VD_MoonwalkState.SyncingUI = true
-        pcall(function() elem:Set(VD.MoonwalkButton) end)
-        VD_MoonwalkState.SyncingUI = false
-    end
-
-    if VD.MoonwalkButton then
-        VD_CreateMoonwalkButton()
-    else
-        VD_SetMoonwalk(false)
-        VD_DestroyMoonwalkButton()
-    end
 end
 getgenv().VD_SetMoonwalkButtonVisible = VD_SetMoonwalkButtonVisible
-
-task.spawn(function()
-    while getgenv().VD and not getgenv().VD.Destroyed do
-        if VD.MoonwalkButton and not (VD_MoonwalkState.ButtonGui and VD_MoonwalkState.ButtonGui.Parent) then
-            pcall(VD_CreateMoonwalkButton)
-        elseif VD.MoonwalkButton then
-            VD_RefreshMoonwalkButton()
-        elseif VD_MoonwalkState.ButtonGui then
-            VD_DestroyMoonwalkButton()
-        end
-        task.wait(3)
-    end
-end)
-
 -- =====================================================
 -- AIM LOCK - External Toggle Button + Logic
 -- =====================================================
@@ -8752,32 +8305,97 @@ RunService.RenderStepped:Connect(function()
 end)
 end -- end AimLock scope
 
+-- =====================================================
+-- MOONWALK — auto aktif saat S ditekan (PC only)
+-- =====================================================
+getgenv().VD_MoonwalkInputState = getgenv().VD_MoonwalkInputState or {
+    HoldingS = false,
+    HoldingW = false,
+}
+
+if not getgenv().VD_MoonwalkInputConn then
+    getgenv().VD_MoonwalkInputConn = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == Enum.KeyCode.S then
+            getgenv().VD_MoonwalkInputState.HoldingS = true
+        elseif input.KeyCode == Enum.KeyCode.W then
+            getgenv().VD_MoonwalkInputState.HoldingW = true
+        elseif input.KeyCode == Enum.KeyCode.T then
+            -- Toggle dulu
+            VD.Moonwalk = not VD.Moonwalk
+
+            -- Kalau baru aja dimatiin, reset AutoRotate biar karakter gak stuck
+            if not VD.Moonwalk then
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then pcall(function() hum.AutoRotate = true end) end
+            end
+
+            -- Sync ke UI toggle biar visualnya ikut berubah
+            local elem = Window and Window.ConfigElements and Window.ConfigElements["Moonwalk"]
+            if elem and type(elem.Set) == "function" then
+                pcall(function() elem:Set(VD.Moonwalk) end)
+            end
+
+            -- Notifikasi
+            pcall(VD_Notify, "Moonwalk", VD.Moonwalk and "Moonwalk AKTIF (T)" or "Moonwalk NONAKTIF (T)", 2)
+        end   
+    end)      
+end           
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == Enum.KeyCode.S then
+            getgenv().VD_MoonwalkInputState.HoldingS = false
+        elseif input.KeyCode == Enum.KeyCode.W then
+            getgenv().VD_MoonwalkInputState.HoldingW = false
+        end
+    end)
+end
+
 function VD_UpdateMoonwalk(deltaTime)
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local cam = Workspace.CurrentCamera
 
-    if VD.Moonwalk ~= VD_MoonwalkState.LastEnabled then
-        if hum then hum.AutoRotate = not VD.Moonwalk end
-        VD_MoonwalkState.LastEnabled = VD.Moonwalk
-        if VD.Moonwalk and root then
-            local _, y = root.CFrame:ToEulerAnglesYXZ()
-            VD_MoonwalkState.Yaw = math.deg(y)
+    if not (VD.Moonwalk and root and hum and cam and hum.Health > 0) then
+        if VD_MoonwalkState.LastEnabled then
+            if hum then pcall(function() hum.AutoRotate = true end) end
+            VD_MoonwalkState.LastEnabled = false
+            VD_MoonwalkState.Yaw = nil
+            VD_MoonwalkState.Sway = 0
         end
-    end
-
-    if not VD.Moonwalk then
         return
     end
-    if not root or not hum or not cam or hum.Health <= 0 then return end
+
+    local state = getgenv().VD_MoonwalkInputState
+
+    -- HANYA S yang trigger moonwalk. W bikin normal (game yang ngurus rotasi)
+    local moonwalkActive = state.HoldingS and not state.HoldingW
+
+    if not moonwalkActive then
+        if VD_MoonwalkState.LastEnabled then
+            pcall(function() hum.AutoRotate = true end)
+            VD_MoonwalkState.LastEnabled = false
+            VD_MoonwalkState.Yaw = nil
+            VD_MoonwalkState.Sway = 0
+        end
+        return
+    end
 
     hum.AutoRotate = false
+    VD_MoonwalkState.LastEnabled = true
+
+    -- S = gerak mundur (-camLook), moonwalk = badan ngadep camLook+180 = camYaw+180
     local look = cam.CFrame.LookVector
-    local targetYaw = math.deg(math.atan2(look.X, look.Z)) + 180
+    local camYaw = math.deg(math.atan2(look.X, look.Z))
+    local targetYaw = camYaw + 180
+
     local currentYaw = VD_MoonwalkState.Yaw or targetYaw
     local diff = (targetYaw - currentYaw + 180) % 360 - 180
-    local lerpSpeed = 0.22 * math.clamp((deltaTime or 1 / 60) * 60, 0, 3)
+    local lerpSpeed = 0.22 * math.clamp((deltaTime or (1/60)) * 60, 0, 3)
     currentYaw = currentYaw + diff * lerpSpeed
     VD_MoonwalkState.Yaw = currentYaw
 
@@ -8787,6 +8405,7 @@ function VD_UpdateMoonwalk(deltaTime)
         targetSway = math.sin(tick() * (VD.MoonwalkZigzagSpeed or 11)) * 48
     end
     VD_MoonwalkState.Sway = (VD_MoonwalkState.Sway or 0) + (targetSway - (VD_MoonwalkState.Sway or 0)) * 0.38
+
     root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(currentYaw + VD_MoonwalkState.Sway), 0)
 
     if moving then
@@ -9514,6 +9133,21 @@ Workspace.ChildAdded:Connect(function(child)
     if child and child.Name == "Map" then
         WatchCurrentMap(child)
         QueueMapScan(0.05)
+        
+        -- Re-apply Ngonten pas map baru spawn
+        task.delay(0.5, function()
+            if getgenv().VD_Ngonten_State and getgenv().VD_Ngonten_State.Enabled then
+                if getgenv().VD_Ngonten_RefreshSky then
+                    pcall(getgenv().VD_Ngonten_RefreshSky)
+                end
+                if getgenv().VD_Ngonten_RefreshText then
+                    pcall(getgenv().VD_Ngonten_RefreshText)
+                end
+                if getgenv().VD_Ngonten_RefreshChar then
+                    pcall(getgenv().VD_Ngonten_RefreshChar)
+                end
+            end
+        end)
     end
     
     if child and child.Name == "Spearprojectile" and VD.SURV_AutoDodgeSpear and GetRole() == "Survivor" then
@@ -9725,7 +9359,7 @@ RunService.Heartbeat:Connect(function()
             end
 
             -- Jika tidak ada VaultTrigger di rootWindow, skip window ini
-            if #allVTs == 0 then continue end
+            if #allVTs > 0 then
 
             -- Cari VaultTrigger TERDEKAT dengan player (= trigger sisi yang sama = benar)
             local nearestVT, nearestVTDist = nil, math.huge
@@ -9740,35 +9374,37 @@ RunService.Heartbeat:Connect(function()
                 end
             end
 
-            -- Player harus dalam radius 6.0 studs dari VaultTrigger terdekat
-            if not nearestVT or nearestVTDist > 6.0 then continue end
+                if nearestVT and nearestVTDist <= 6.0 then
 
-            -- Cek cooldown per-rootWindow (3.0s)
-            local lastUsed = _vaultedWindows[rootWindow] or 0
-            if tick() - lastUsed < 3.0 then continue end
+                    -- Cek cooldown per-rootWindow (3.0s)
+                    local lastUsed = _vaultedWindows[rootWindow] or 0
+                    if tick() - lastUsed >= 3.0 then
 
-            -- finalTarget = VaultTrigger terdekat (sesuai sisi player)
-            local finalTarget = nearestVT
+                        -- finalTarget = VaultTrigger terdekat (sesuai sisi player)
+                        local finalTarget = nearestVT
 
-            local remotes2 = ReplicatedStorage:FindFirstChild("Remotes")
-            local winFold  = remotes2 and remotes2:FindFirstChild("Window")
-            if winFold and finalTarget then
-                local vaultEvent     = winFold:FindFirstChild("VaultEvent")
-                local vaultBindable  = winFold:FindFirstChild("Vaultbindable")
-                local fastvault      = winFold:FindFirstChild("fastvault")
-                local vaultComplete1 = winFold:FindFirstChild("VaultCompleteEventpart1")
-                local vaultComplete  = winFold:FindFirstChild("VaultCompleteEvent")
+                        local remotes2 = ReplicatedStorage:FindFirstChild("Remotes")
+                        local winFold  = remotes2 and remotes2:FindFirstChild("Window")
+                        if winFold and finalTarget then
+                            local vaultEvent     = winFold:FindFirstChild("VaultEvent")
+                            local vaultBindable  = winFold:FindFirstChild("Vaultbindable")
+                            local fastvault      = winFold:FindFirstChild("fastvault")
+                            local vaultComplete1 = winFold:FindFirstChild("VaultCompleteEventpart1")
+                            local vaultComplete  = winFold:FindFirstChild("VaultCompleteEvent")
 
                 -- Sesuai spy: VaultEvent(nearestVT, true) â†’ fastvault â†’ Complete1 â†’ CompleteEvent(nearestVT, false)
-                if vaultEvent    then pcall(function() vaultEvent:FireServer(finalTarget, true) end) end
-                if vaultBindable then pcall(function() vaultBindable:Fire(finalTarget, true) end) end
-                if fastvault     then pcall(function() fastvault:FireServer(LocalPlayer) end) end
-                if vaultComplete1 then pcall(function() vaultComplete1:FireServer() end) end
-                if vaultComplete  then pcall(function() vaultComplete:FireServer(finalTarget, false) end) end
-            end
+                            if vaultEvent    then pcall(function() vaultEvent:FireServer(finalTarget, true) end) end
+                            if vaultBindable then pcall(function() vaultBindable:Fire(finalTarget, true) end) end
+                            if fastvault     then pcall(function() fastvault:FireServer(LocalPlayer) end) end
+                            if vaultComplete1 then pcall(function() vaultComplete1:FireServer() end) end
+                            if vaultComplete  then pcall(function() vaultComplete:FireServer(finalTarget, false) end) end
+                        end
 
-            _vaultedWindows[rootWindow] = tick()
-            break
+                        _vaultedWindows[rootWindow] = tick()
+                        break
+                    end
+                end
+            end
         end
 
     end)
@@ -9785,12 +9421,12 @@ local _usedPallets     = {}  -- [palletwrong model] = true
 
 local function getKillerRoot()
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == LocalPlayer then continue end
-        if IsSurvivor and IsSurvivor(plr) then continue end
-        local char = plr.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then return root end
+        if plr ~= LocalPlayer and not (IsSurvivor and IsSurvivor(plr)) then
+            local char = plr.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then return root end
+            end
         end
     end
     return nil
@@ -9838,22 +9474,20 @@ RunService.Heartbeat:Connect(function()
 
         -- Iterasi KYS_Cache.Pallets untuk cari Palletwrong terdekat
         for _, pal in ipairs(KYS_Cache.Pallets or {}) do
-            local palModel = pal.model  -- ini adalah Palletwrong model
-            if not palModel then continue end
-            if _usedPallets[palModel] then continue end
-
-            -- Gunakan PalletPoint/PalletPointSlide sebagai referensi posisi
-            local refPart = pal.part or palModel:FindFirstChild("PalletPoint")
-                         or palModel:FindFirstChild("PalletPointSlide")
-            if not refPart then continue end
-
-            local ok, pos = pcall(function() return refPart.Position end)
-            if not ok or not pos then continue end
-
-            local d = (myRoot.Position - pos).Magnitude
-            if d < bestDist then
-                bestDist = d
-                bestPalletwrong = palModel
+            local palModel = pal.model
+            if palModel and not _usedPallets[palModel] then
+                local refPart = pal.part or palModel:FindFirstChild("PalletPoint")
+                             or palModel:FindFirstChild("PalletPointSlide")
+                if refPart then
+                    local ok, pos = pcall(function() return refPart.Position end)
+                    if ok and pos then
+                        local d = (myRoot.Position - pos).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestPalletwrong = palModel
+                        end
+                    end
+                end
             end
         end
 
@@ -12990,7 +12624,542 @@ local function readConfigElementValue(flagName)
     return nil
 end
 
+-- =====================================================
+-- NGONTEN MODE v4 (FIXED FULL)
+-- Skybox 6-sisi + KING INUL text + rainbow R6/R15 + fog ungu
+-- =====================================================
+local VD_Ngonten = {
+    Enabled = false,
+    EnablePurpleSky = true,
+    EnableFog = true,
+    EnableKingInulText = true,
+    EnableRainbowChar = true,
+    RainbowSpeed = 0.35,
+    Backup = {},
+    SkyboxFolder = nil,
+    UpdateConn = nil,
+    CharConn = nil,
+    OrigColors = {},
+    RemovedItems = {},
+}
+getgenv().VD_Ngonten_State = VD_Ngonten
+
+local NG_PURPLE = Color3.fromRGB(100, 30, 180)
+local NG_PURPLE_LIGHT = Color3.fromRGB(150, 80, 220)
+local NG_TEXT_COLOR = Color3.fromRGB(255, 210, 255)
+local NG_TEXT_STROKE = Color3.fromRGB(60, 10, 120)
+
+-- =====================================================
+-- BACKUP / RESTORE LIGHTING
+-- =====================================================
+local function NG_MakeBackup()
+    if VD_Ngonten.Backup._done then return end
+    local L = game:GetService("Lighting")
+    local b = { _done = true }
+    pcall(function() b.Brightness = L.Brightness end)
+    pcall(function() b.Ambient = L.Ambient end)
+    pcall(function() b.OutdoorAmbient = L.OutdoorAmbient end)
+    pcall(function() b.FogColor = L.FogColor end)
+    pcall(function() b.FogEnd = L.FogEnd end)
+    pcall(function() b.FogStart = L.FogStart end)
+    pcall(function() b.ClockTime = L.ClockTime end)
+    pcall(function() b.EnvironmentDiffuseScale = L.EnvironmentDiffuseScale end)
+    pcall(function() b.EnvironmentSpecularScale = L.EnvironmentSpecularScale end)
+
+    local sky = L:FindFirstChildOfClass("Sky")
+    if sky then
+        b.SkyExists = true
+        b.SkyObject = sky
+        pcall(function() b.SkyboxBk = sky.SkyboxBk end)
+        pcall(function() b.SkyboxDn = sky.SkyboxDn end)
+        pcall(function() b.SkyboxFt = sky.SkyboxFt end)
+        pcall(function() b.SkyboxLf = sky.SkyboxLf end)
+        pcall(function() b.SkyboxRt = sky.SkyboxRt end)
+        pcall(function() b.SkyboxUp = sky.SkyboxUp end)
+        pcall(function() b.CelestialBodiesShown = sky.CelestialBodiesShown end)
+        pcall(function() b.StarCount = sky.StarCount end)
+    end
+
+    local atm = L:FindFirstChildOfClass("Atmosphere")
+    if atm then
+        b.AtmExists = true
+        b.AtmObject = atm
+        pcall(function() b.Density = atm.Density end)
+        pcall(function() b.Offset = atm.Offset end)
+        pcall(function() b.Color = atm.Color end)
+        pcall(function() b.Decay = atm.Decay end)
+        pcall(function() b.Haze = atm.Haze end)
+        pcall(function() b.Glare = atm.Glare end)
+    end
+
+    VD_Ngonten.Backup = b
+end
+
+local function NG_RestoreBackup()
+    local L = game:GetService("Lighting")
+    local b = VD_Ngonten.Backup
+    if not b or not b._done then return end
+
+    pcall(function() L.Brightness = b.Brightness end)
+    pcall(function() L.Ambient = b.Ambient end)
+    pcall(function() L.OutdoorAmbient = b.OutdoorAmbient end)
+    pcall(function() L.FogColor = b.FogColor end)
+    pcall(function() L.FogEnd = b.FogEnd end)
+    pcall(function() L.FogStart = b.FogStart end)
+    pcall(function() L.ClockTime = b.ClockTime end)
+    pcall(function() L.EnvironmentDiffuseScale = b.EnvironmentDiffuseScale end)
+    pcall(function() L.EnvironmentSpecularScale = b.EnvironmentSpecularScale end)
+
+    if b.SkyExists and b.SkyObject and b.SkyObject.Parent then
+        local s = b.SkyObject
+        pcall(function() s.SkyboxBk = b.SkyboxBk end)
+        pcall(function() s.SkyboxDn = b.SkyboxDn end)
+        pcall(function() s.SkyboxFt = b.SkyboxFt end)
+        pcall(function() s.SkyboxLf = b.SkyboxLf end)
+        pcall(function() s.SkyboxRt = b.SkyboxRt end)
+        pcall(function() s.SkyboxUp = b.SkyboxUp end)
+        pcall(function() s.CelestialBodiesShown = b.CelestialBodiesShown end)
+        pcall(function() s.StarCount = b.StarCount end)
+    end
+
+    if b.AtmExists and b.AtmObject and b.AtmObject.Parent then
+        local a = b.AtmObject
+        pcall(function() a.Density = b.Density end)
+        pcall(function() a.Offset = b.Offset end)
+        pcall(function() a.Color = b.Color end)
+        pcall(function() a.Decay = b.Decay end)
+        pcall(function() a.Haze = b.Haze end)
+        pcall(function() a.Glare = b.Glare end)
+    end
+end
+
+-- =====================================================
+-- SKYBOX 6-SISI + KING INUL
+-- =====================================================
+local NG_SKYBOX_SIZE = 800
+
+local function NG_MakeSkyFace(name, offset, size, faceNormal, textY)
+    textY = textY or 0.375
+
+    local part = Instance.new("Part")
+    part.Name = "NG_Sky_" .. name
+    part.Size = size
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.CastShadow = false
+    part.Material = Enum.Material.SmoothPlastic
+    part.Color = NG_PURPLE
+    part.Transparency = 1
+    part:SetAttribute("NG_OffsetX", offset.X)
+    part:SetAttribute("NG_OffsetY", offset.Y)
+    part:SetAttribute("NG_OffsetZ", offset.Z)
+    part.Parent = VD_Ngonten.SkyboxFolder
+
+    local sg = Instance.new("SurfaceGui")
+    sg.Name = "NG_Surface"
+    sg.Face = faceNormal
+    sg.AlwaysOnTop = false
+    sg.LightInfluence = 0
+    sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+    sg.PixelsPerStud = 1
+    sg.ZOffset = 0
+    sg.ClipsDescendants = false
+    sg.Parent = part
+
+    local bg = Instance.new("Frame")
+    bg.Name = "BG"
+    bg.Size = UDim2.fromScale(1, 1)
+    bg.BackgroundColor3 = NG_PURPLE
+    bg.BorderSizePixel = 0
+    bg.Parent = sg
+
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, NG_PURPLE_LIGHT),
+        ColorSequenceKeypoint.new(0.5, NG_PURPLE),
+        ColorSequenceKeypoint.new(1, NG_PURPLE_LIGHT),
+    })
+    grad.Rotation = 90
+    grad.Parent = bg
+
+    local outline = Instance.new("TextLabel")
+    outline.Name = "KingInulOutline"
+    outline.Size = UDim2.fromScale(0.85, 0.25)
+    outline.Position = UDim2.fromScale(0.075, textY)
+    outline.BackgroundTransparency = 1
+    outline.Text = "KING INUL"
+    outline.Font = Enum.Font.GothamBlack
+    outline.TextColor3 = NG_TEXT_STROKE
+    outline.TextScaled = true
+    outline.TextStrokeTransparency = 0
+    outline.TextStrokeColor3 = NG_TEXT_STROKE
+    outline.ZIndex = 1
+    outline.Parent = bg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = "KingInulLabel"
+    lbl.Size = UDim2.fromScale(0.85, 0.25)
+    lbl.Position = UDim2.fromScale(0.077, textY + 0.003)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "KING INUL"
+    lbl.Font = Enum.Font.GothamBlack
+    lbl.TextColor3 = NG_TEXT_COLOR
+    lbl.TextScaled = true
+    lbl.TextStrokeTransparency = 0.4
+    lbl.TextStrokeColor3 = NG_TEXT_STROKE
+    lbl.ZIndex = 2
+    lbl.Parent = bg
+
+    return part
+end
+
+local function NG_BuildSkybox()
+    if VD_Ngonten.SkyboxFolder then
+        pcall(function() VD_Ngonten.SkyboxFolder:Destroy() end)
+    end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "VD_Ngonten_Skybox"
+    folder.Parent = workspace
+    VD_Ngonten.SkyboxFolder = folder
+
+    local S = NG_SKYBOX_SIZE
+    local HALF = S / 2
+    local THICK = 2
+
+    -- Top & Bottom: text di tengah
+    -- Sisi vertikal: text di atas (0.08)
+    NG_MakeSkyFace("Top",    Vector3.new(0,  HALF, 0), Vector3.new(S, THICK, S), Enum.NormalId.Bottom, 0.375)
+    NG_MakeSkyFace("Bottom", Vector3.new(0, -HALF, 0), Vector3.new(S, THICK, S), Enum.NormalId.Top,    0.375)
+    NG_MakeSkyFace("East",   Vector3.new( HALF, 0, 0), Vector3.new(THICK, S, S), Enum.NormalId.Left,   0.08)
+    NG_MakeSkyFace("West",   Vector3.new(-HALF, 0, 0), Vector3.new(THICK, S, S), Enum.NormalId.Right,  0.08)
+    NG_MakeSkyFace("South",  Vector3.new(0, 0,  HALF), Vector3.new(S, S, THICK), Enum.NormalId.Front,  0.08)
+    NG_MakeSkyFace("North",  Vector3.new(0, 0, -HALF), Vector3.new(S, S, THICK), Enum.NormalId.Back,   0.08)
+end
+
+local function NG_UpdateSkyboxPosition()
+    local folder = VD_Ngonten.SkyboxFolder
+    if not folder or not folder.Parent then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local basePos = hrp.Position
+    for _, p in ipairs(folder:GetChildren()) do
+        if p:IsA("BasePart") then
+            local ox = p:GetAttribute("NG_OffsetX") or 0
+            local oy = p:GetAttribute("NG_OffsetY") or 0
+            local oz = p:GetAttribute("NG_OffsetZ") or 0
+            p.CFrame = CFrame.new(basePos + Vector3.new(ox, oy, oz))
+        end
+    end
+end
+
+-- =====================================================
+-- FOG + SKY + ATMOSPHERE (ungu konsisten)
+-- =====================================================
+local function NG_ApplyFog()
+    local L = game:GetService("Lighting")
+
+    pcall(function() L.FogColor = NG_PURPLE end)
+    pcall(function() L.FogStart = 30 end)
+    pcall(function() L.FogEnd = 400 end)
+    pcall(function() L.Ambient = NG_PURPLE end)
+    pcall(function() L.OutdoorAmbient = NG_PURPLE_LIGHT end)
+    pcall(function() L.Brightness = 1.8 end)
+    pcall(function() L.ClockTime = 18 end)
+    pcall(function() L.EnvironmentDiffuseScale = 0.8 end)
+    pcall(function() L.EnvironmentSpecularScale = 0.2 end)
+
+    -- SKY — cari by NAME, destroy Sky lain
+    local sky = L:FindFirstChild("NG_Sky")
+    if not sky then
+        for _, obj in ipairs(L:GetChildren()) do
+            if obj:IsA("Sky") then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+        sky = Instance.new("Sky")
+        sky.Name = "NG_Sky"
+        sky.Parent = L
+    end
+    pcall(function()
+        sky.SkyboxBk = ""
+        sky.SkyboxDn = ""
+        sky.SkyboxFt = ""
+        sky.SkyboxLf = ""
+        sky.SkyboxRt = ""
+        sky.SkyboxUp = ""
+        sky.CelestialBodiesShown = false
+        sky.StarCount = 0
+    end)
+
+    -- ATMOSPHERE — cari by NAME, destroy Atmosphere lain
+    local atm = L:FindFirstChild("NG_Atmosphere")
+    if not atm then
+        for _, obj in ipairs(L:GetChildren()) do
+            if obj:IsA("Atmosphere") then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+        atm = Instance.new("Atmosphere")
+        atm.Name = "NG_Atmosphere"
+        atm.Parent = L
+    end
+    pcall(function()
+        atm.Density = 0.45
+        atm.Offset = 0.1
+        atm.Color = NG_PURPLE_LIGHT
+        atm.Decay = NG_PURPLE
+        atm.Haze = 8
+        atm.Glare = 0
+    end)
+end
+
+-- =====================================================
+-- R6/R15 RAINBOW CHAR
+-- =====================================================
+local function NG_StripBodyItems()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, obj in ipairs(char:GetChildren()) do
+        local shouldStrip = obj:IsA("Shirt")
+            or obj:IsA("Pants")
+            or obj:IsA("ShirtGraphic")
+            or obj:IsA("CharacterMesh")
+
+        if shouldStrip then
+            local alreadyRemoved = false
+            for _, saved in ipairs(VD_Ngonten.RemovedItems) do
+                if saved == obj then alreadyRemoved = true break end
+            end
+            if not alreadyRemoved then
+                table.insert(VD_Ngonten.RemovedItems, obj)
+            end
+            obj.Parent = nil
+        end
+        -- BodyColors JANGAN dihapus, nanti di-set warnanya
+    end
+end
+
+local function NG_RefreshChar()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local key = tostring(part:GetFullName())
+            if not VD_Ngonten.OrigColors[key] then
+                VD_Ngonten.OrigColors[key] = {
+                    Color = part.Color,
+                    Material = part.Material,
+                    Transparency = part.Transparency,
+                }
+            end
+        end
+    end
+
+    -- R6: buang Shirt/Pants/Mesh biar warna keliatan
+    NG_StripBodyItems()
+end
+
+local function NG_RestoreChar()
+    local char = LocalPlayer.Character
+
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                local key = tostring(part:GetFullName())
+                local orig = VD_Ngonten.OrigColors[key]
+                if orig then
+                    pcall(function()
+                        if orig.Color then part.Color = orig.Color end
+                        if orig.Material then part.Material = orig.Material end
+                        if orig.Transparency ~= nil then part.Transparency = orig.Transparency end
+                    end)
+                end
+            end
+        end
+    end
+
+    if VD_Ngonten.RemovedItems and char then
+        for _, obj in ipairs(VD_Ngonten.RemovedItems) do
+            if obj then
+                pcall(function() obj.Parent = char end)
+            end
+        end
+    end
+    VD_Ngonten.RemovedItems = {}
+
+    VD_Ngonten.OrigColors = {}
+end
+
+local function NG_UpdateRainbow(now)
+    if not VD_Ngonten.EnableRainbowChar then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    -- Strip terus tiap frame (game suka re-apply shirt/pants)
+    NG_StripBodyItems()
+
+    local speed = tonumber(VD_Ngonten.RainbowSpeed) or 0.35
+    local baseH = (now * speed) % 1
+
+    -- ================================================
+    -- Set BodyColors (buat R6 — ini kunci!)
+    -- ================================================
+    local bc = char:FindFirstChild("BodyColors")
+    if bc then
+        pcall(function()
+            bc.HeadColor3     = Color3.fromHSV((baseH + 0.00) % 1, 0.9, 1)
+            bc.TorsoColor3    = Color3.fromHSV((baseH + 0.15) % 1, 0.9, 1)
+            bc.LeftArmColor3  = Color3.fromHSV((baseH + 0.30) % 1, 0.9, 1)
+            bc.RightArmColor3 = Color3.fromHSV((baseH + 0.45) % 1, 0.9, 1)
+            bc.LeftLegColor3  = Color3.fromHSV((baseH + 0.60) % 1, 0.9, 1)
+            bc.RightLegColor3 = Color3.fromHSV((baseH + 0.75) % 1, 0.9, 1)
+        end)
+    end
+
+    -- ================================================
+    -- Set part.Color (backup + R15)
+    -- ================================================
+    local i = 0
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local key = tostring(part:GetFullName())
+            if not VD_Ngonten.OrigColors[key] then
+                VD_Ngonten.OrigColors[key] = {
+                    Color = part.Color,
+                    Material = part.Material,
+                    Transparency = part.Transparency,
+                }
+            end
+
+            local h = (baseH + i * 0.047) % 1
+
+            pcall(function()
+                if part:IsA("MeshPart") then
+                    if part.TextureID ~= "" then
+                        part.TextureID = ""
+                    end
+                    for _, child in ipairs(part:GetChildren()) do
+                        if child:IsA("SurfaceAppearance") then
+                            child:Destroy()
+                        end
+                    end
+                end
+                for _, child in ipairs(part:GetChildren()) do
+                    if child:IsA("Decal") or child:IsA("Texture") then
+                        child.Transparency = 1
+                    end
+                end
+                part.Material = Enum.Material.SmoothPlastic
+                part.Color = Color3.fromHSV(h, 0.9, 1)
+            end)
+
+            i = i + 1
+        end
+    end
+end
+-- =====================================================
+-- MAIN LOOP
+-- =====================================================
+local function NG_StartLoop()
+    if VD_Ngonten.UpdateConn then
+        pcall(function() VD_Ngonten.UpdateConn:Disconnect() end)
+    end
+    VD_Ngonten.UpdateConn = RunService.RenderStepped:Connect(function()
+        if not VD_Ngonten.Enabled then return end
+
+        if VD_Ngonten.EnableKingInulText then
+            if not (VD_Ngonten.SkyboxFolder and VD_Ngonten.SkyboxFolder.Parent) then
+                pcall(NG_BuildSkybox)
+            end
+            pcall(NG_UpdateSkyboxPosition)
+        elseif VD_Ngonten.SkyboxFolder then
+            pcall(function() VD_Ngonten.SkyboxFolder:Destroy() end)
+            VD_Ngonten.SkyboxFolder = nil
+        end
+
+        if VD_Ngonten.EnableFog or VD_Ngonten.EnablePurpleSky then
+            pcall(NG_ApplyFog)
+        end
+
+        if VD_Ngonten.EnableRainbowChar then
+            pcall(NG_UpdateRainbow, tick())
+        end
+    end)
+end
+
+-- =====================================================
+-- ENABLE / DISABLE
+-- =====================================================
+function VD_Ngonten_Enable()
+    NG_MakeBackup()
+    VD_Ngonten.Enabled = true
+
+    pcall(NG_BuildSkybox)
+    pcall(NG_ApplyFog)
+    pcall(NG_RefreshChar)
+
+    -- Langsung apply 1x, gak nunggu frame pertama
+    pcall(NG_StripBodyItems)
+    pcall(NG_UpdateRainbow, tick())
+
+    NG_StartLoop()
+
+    if VD_Ngonten.CharConn then
+        pcall(function() VD_Ngonten.CharConn:Disconnect() end)
+    end
+    VD_Ngonten.CharConn = LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(1)
+        if VD_Ngonten.Enabled then
+            VD_Ngonten.OrigColors = {}
+            VD_Ngonten.RemovedItems = {}
+            pcall(NG_RefreshChar)
+            pcall(NG_BuildSkybox)
+            pcall(NG_UpdateRainbow, tick())
+        end
+    end)
+end
+
+function VD_Ngonten_Disable()
+    VD_Ngonten.Enabled = false
+
+    if VD_Ngonten.UpdateConn then
+        pcall(function() VD_Ngonten.UpdateConn:Disconnect() end)
+        VD_Ngonten.UpdateConn = nil
+    end
+    if VD_Ngonten.CharConn then
+        pcall(function() VD_Ngonten.CharConn:Disconnect() end)
+        VD_Ngonten.CharConn = nil
+    end
+
+    if VD_Ngonten.SkyboxFolder then
+        pcall(function() VD_Ngonten.SkyboxFolder:Destroy() end)
+        VD_Ngonten.SkyboxFolder = nil
+    end
+
+    pcall(NG_RestoreChar)
+    pcall(NG_RestoreBackup)
+    VD_Ngonten.Backup._done = false
+end
+
+function VD_Ngonten_SetEnabled(state)
+    if state then
+        VD_Ngonten_Enable()
+    else
+        VD_Ngonten_Disable()
+    end
+end
+
+getgenv().VD_Ngonten_SetEnabled = VD_Ngonten_SetEnabled
+getgenv().VD_Ngonten_RefreshSky = function() pcall(NG_ApplyFog) end
+getgenv().VD_Ngonten_RefreshText = function() pcall(NG_BuildSkybox) end
+getgenv().VD_Ngonten_RefreshChar = function() pcall(NG_RefreshChar) end
 getgenv().KYS_SyncUILibraryConfigRuntime = function()
+
     local tofValue = readConfigElementValue("Silent Aim Twist Of Fate")
     if type(tofValue) == "boolean" and tofValue ~= VD.TOF_SilentAim and getgenv().KYS_SetToFSilentAim then
         pcall(getgenv().KYS_SetToFSilentAim, tofValue)
@@ -13042,4 +13211,3 @@ end)
 end
 
 __KysHub_Init_Main__()
---cracked by ashy3447
