@@ -8322,27 +8322,19 @@ if not getgenv().VD_MoonwalkInputConn then
         elseif input.KeyCode == Enum.KeyCode.W then
             getgenv().VD_MoonwalkInputState.HoldingW = true
         elseif input.KeyCode == Enum.KeyCode.T then
-            -- Toggle dulu
             VD.Moonwalk = not VD.Moonwalk
-
-            -- Kalau baru aja dimatiin, reset AutoRotate biar karakter gak stuck
             if not VD.Moonwalk then
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum then pcall(function() hum.AutoRotate = true end) end
             end
-
-            -- Sync ke UI toggle biar visualnya ikut berubah
             local elem = Window and Window.ConfigElements and Window.ConfigElements["Moonwalk"]
             if elem and type(elem.Set) == "function" then
                 pcall(function() elem:Set(VD.Moonwalk) end)
             end
-
-            -- Notifikasi
             pcall(VD_Notify, "Moonwalk", VD.Moonwalk and "Moonwalk AKTIF (T)" or "Moonwalk NONAKTIF (T)", 2)
-        end   
-    end)      
-end           
+        end
+    end)   -- tutup function + Connect
 
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -8351,8 +8343,8 @@ end
         elseif input.KeyCode == Enum.KeyCode.W then
             getgenv().VD_MoonwalkInputState.HoldingW = false
         end
-    end)
-end
+    end)   -- tutup function + Connect
+end        -- tutup if not getgenv()
 
 function VD_UpdateMoonwalk(deltaTime)
     local char = LocalPlayer.Character
@@ -13209,5 +13201,4 @@ task.spawn(function()
     end
 end)
 end
-
 __KysHub_Init_Main__()
