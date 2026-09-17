@@ -1251,8 +1251,8 @@ function VD_ApplyWeather(themeName)
         if theme.Particle.Texture then
             task.spawn(function()
                 pcall(function()
-                    local CP = game:GetService("ContentProvider") :: any
-                    CP:PreloadAsync({pe})
+                    local ContentProvider = game:GetService("ContentProvider")
+                    ContentProvider:PreloadAsync({pe})
                 end)
             end)
         end
